@@ -34,6 +34,14 @@ impl<'a> Drop for DeviceHandle<'a> {
 }
 
 impl<'a> DeviceHandle<'a> {
+    /// Get the raw libusb_device_handle pointer, for advanced use in unsafe code.
+    ///
+    /// This structure tracks claimed interfaces, and will get out if sync if interfaces are
+    /// manipulated externally. Use only libusb endpoint IO functions.
+    pub fn as_raw(&self) -> *mut ::libusb::libusb_device_handle {
+        self.handle
+    }
+
     /// Returns the active configuration number.
     pub fn active_configuration(&mut self) -> ::Result<u8> {
         let mut config = unsafe { mem::uninitialized() };
