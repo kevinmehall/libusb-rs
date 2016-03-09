@@ -23,6 +23,8 @@ impl<'a> Drop for Device<'a> {
     }
 }
 
+unsafe impl<'a> Sync for Device<'a> {}
+
 impl<'a> Device<'a> {
     /// Get the raw libusb_device pointer, for advanced use in unsafe code
     pub fn as_raw(&self) -> *mut ::libusb::libusb_device {
@@ -30,7 +32,7 @@ impl<'a> Device<'a> {
     }
 
     /// Reads the device descriptor.
-    pub fn device_descriptor(&mut self) -> ::Result<DeviceDescriptor> {
+    pub fn device_descriptor(&self) -> ::Result<DeviceDescriptor> {
         let mut descriptor: ::libusb::libusb_device_descriptor = unsafe { mem::uninitialized() };
 
         // since libusb 1.0.16, this function always succeeds
@@ -40,7 +42,7 @@ impl<'a> Device<'a> {
     }
 
     /// Reads a configuration descriptor.
-    pub fn config_descriptor(&mut self, config_index: u8) -> ::Result<ConfigDescriptor> {
+    pub fn config_descriptor(&self, config_index: u8) -> ::Result<ConfigDescriptor> {
         let mut config: *const ::libusb::libusb_config_descriptor = unsafe { mem::uninitialized() };
 
         try_unsafe!(::libusb::libusb_get_config_descriptor(self.device, config_index, &mut config));
@@ -49,28 +51,28 @@ impl<'a> Device<'a> {
     }
 
     /// Returns the number of the bus that the device is connected to.
-    pub fn bus_number(&mut self) -> u8 {
+    pub fn bus_number(&self) -> u8 {
         unsafe {
             ::libusb::libusb_get_bus_number(self.device)
         }
     }
 
     /// Returns the device's address on the bus that it's connected to.
-    pub fn address(&mut self) -> u8 {
+    pub fn address(&self) -> u8 {
         unsafe {
             ::libusb::libusb_get_device_address(self.device)
         }
     }
 
     /// Returns the device's connection speed.
-    pub fn speed(&mut self) -> Speed {
+    pub fn speed(&self) -> Speed {
         ::fields::speed_from_libusb(unsafe {
             ::libusb::libusb_get_device_speed(self.device)
         })
     }
 
     /// Opens the device.
-    pub fn open(&mut self) -> ::Result<DeviceHandle<'a>> {
+    pub fn open(&self) -> ::Result<DeviceHandle<'a>> {
         let mut handle: *mut ::libusb::libusb_device_handle = unsafe { mem::uninitialized() };
 
         try_unsafe!(::libusb::libusb_open(self.device, &mut handle));
