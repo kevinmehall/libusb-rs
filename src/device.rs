@@ -24,6 +24,11 @@ impl<'a> Drop for Device<'a> {
 }
 
 impl<'a> Device<'a> {
+    /// Get the raw libusb_device pointer, for advanced use in unsafe code
+    pub fn as_raw(&self) -> *mut ::libusb::libusb_device {
+        self.device
+    }
+
     /// Reads the device descriptor.
     pub fn device_descriptor(&mut self) -> ::Result<DeviceDescriptor> {
         let mut descriptor: ::libusb::libusb_device_descriptor = unsafe { mem::uninitialized() };
