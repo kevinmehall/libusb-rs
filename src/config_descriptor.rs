@@ -28,7 +28,7 @@ impl ConfigDescriptor {
         }
     }
 
-    /// Returns the device's maximum power consumption (in milliwatts) in this configuration.
+    /// Returns the device's maximum power consumption (in milliamps) in this configuration.
     pub fn max_power(&self) -> u16 {
         unsafe {
             (*self.descriptor).bMaxPower as u16 * 2
@@ -76,6 +76,12 @@ impl ConfigDescriptor {
         };
 
         Interfaces { iter: interfaces.iter() }
+    }
+
+    pub fn extra(&self) -> &[u8] {
+        unsafe {
+            slice::from_raw_parts((*self.descriptor).extra, (*self.descriptor).extra_length as usize)
+        }
     }
 }
 
