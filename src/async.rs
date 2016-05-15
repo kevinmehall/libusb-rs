@@ -12,7 +12,7 @@ use std::mem;
 /// result of a completed transfer. A completed Transfer can be resubmitted.
 pub struct Transfer<'d> {
     _handle: PhantomData<&'d ::DeviceHandle<'d>>,  // transfer.dev_handle
-    _buffer: PhantomData<&'d mut [u8]>, // transfer.data
+    buffer: Vec<u8>, // move buffer into transfer
     transfer: *mut ::libusb::libusb_transfer,
 }
 
@@ -45,7 +45,7 @@ pub enum TransferStatus {
 }
 
 impl<'d> Transfer<'d> {
-    fn new(handle: &'d ::DeviceHandle<'d>, endpoint: u8, transfer_type: c_uchar, buffer: &'d mut[u8], timeout: Duration) -> Transfer<'d> {
+    fn new(handle: &'d ::DeviceHandle<'d>, endpoint: u8, transfer_type: c_uchar, mut buffer: Vec<u8>, timeout: Duration) -> Transfer<'d> {
         let timeout_ms = timeout.as_secs() * 1000 + timeout.subsec_nanos() as u64 / 1_000_000;
         unsafe {
             let t = ::libusb::libusb_alloc_transfer(0);
@@ -58,17 +58,18 @@ impl<'d> Transfer<'d> {
             (*t).length = buffer.len() as i32;
             (*t).actual_length = 0;
 
-            Transfer{ transfer: t, _handle: PhantomData, _buffer: PhantomData }
+            buffer.shrink_to_fit();
+            Transfer{ transfer: t, _handle: PhantomData, buffer: buffer }
         }
     }
 
     /// Creates an asynchronous bulk transfer, but does not submit it.
-    pub fn bulk(handle: &'d ::DeviceHandle<'d>, endpoint: u8, buffer: &'d mut[u8], timeout: Duration) -> Transfer<'d> {
+    pub fn bulk(handle: &'d ::DeviceHandle<'d>, endpoint: u8, buffer: Vec<u8>, timeout: Duration) -> Transfer<'d> {
         Transfer::new(handle, endpoint, ::libusb::LIBUSB_TRANSFER_TYPE_BULK, buffer, timeout)
     }
 
     /// Creates an asynchronous interrupt transfer, but does not submit it.
-    pub fn interrupt(handle: &'d ::DeviceHandle<'d>, endpoint: u8, buffer: &'d mut[u8], timeout: Duration) -> Transfer<'d> {
+    pub fn interrupt(handle: &'d ::DeviceHandle<'d>, endpoint: u8, buffer: Vec<u8>, timeout: Duration) -> Transfer<'d> {
         Transfer::new(handle, endpoint, ::libusb::LIBUSB_TRANSFER_TYPE_INTERRUPT, buffer, timeout)
     }
 
@@ -98,17 +99,18 @@ impl<'d> Transfer<'d> {
     }
 
     /// Access the buffer of a transfer.
-    pub fn buffer(&mut self) -> &'d mut [u8] {
-        unsafe { slice::from_raw_parts_mut((*self.transfer).buffer, (*self.transfer).length as usize) }
+    pub fn buffer(&mut self) -> &mut [u8] {
+        &mut self.buffer
     }
 
     /// Replace the buffer of a transfer.
-    pub fn set_buffer(&mut self, buffer: &'d mut [u8]) {
+    pub fn set_buffer(&mut self, mut buffer: Vec<u8>) {
         unsafe {
             (*self.transfer).buffer = buffer.as_mut_ptr();
             (*self.transfer).length = buffer.len() as i32;
             (*self.transfer).actual_length = 0;
         }
+        self.buffer = buffer;
     }
 
     /// Access the slice of the buffer containing actual data received on an IN transfer.
@@ -213,8 +215,9 @@ impl<'d> AsyncGroup<'d> {
             if !self.pending.remove(&transfer) {
                 panic!("Got a completion for a transfer that wasn't pending");
             }
-
-            Ok(Transfer{ transfer: transfer, _handle: PhantomData, _buffer: PhantomData })
+            
+            let vec = Vec::from_raw_parts((*transfer).buffer, (*transfer).length as usize, (*transfer).length as usize);
+            Ok(Transfer{ transfer: transfer, _handle: PhantomData, buffer: vec })
         }
     }
 
