@@ -73,6 +73,27 @@ impl<'d> Transfer<'d> {
         Transfer::new(handle, endpoint, ::libusb::LIBUSB_TRANSFER_TYPE_INTERRUPT, buffer, timeout)
     }
 
+    /// Creates an asynchronous control transfer, but does not submit it.
+    /// In difference to the other functions, this function takes  additional arguments.
+    /// The additional arguments are the ones also used in the synchron version
+    /// of read_control / write_control.
+    pub fn control(handle: &'d ::DeviceHandle<'d>, endpoint: u8, buffer: Vec<u8>,
+                   request_type: u8, request: u8, value: u16, index: u16,
+                   timeout: Duration) -> Transfer<'d> {
+        let length = buffer.len() as u16;
+        let vec: Vec<u8> = [
+            request_type,
+            request,
+            (value & 0xff) as u8,
+            (value >> 8) as u8,
+            (index & 0xff) as u8,
+            (index >> 8) as u8,
+            (length & 0xff) as u8,
+            (length >> 8) as u8,
+        ].iter().cloned().chain(buffer).collect();
+        Transfer::new(handle, endpoint, ::libusb::LIBUSB_TRANSFER_TYPE_CONTROL, vec, timeout)
+    }
+
     pub fn endpoint(&self) -> u8 {
         unsafe {
             (*self.transfer).endpoint as u8
@@ -115,7 +136,15 @@ impl<'d> Transfer<'d> {
 
     /// Access the slice of the buffer containing actual data received on an IN transfer.
     pub fn actual(&mut self) -> &'d mut [u8] {
-        unsafe { slice::from_raw_parts_mut((*self.transfer).buffer, (*self.transfer).actual_length as usize) }
+        unsafe {
+            // if this is a control request, the first 8 bytes of the buffer are
+            // the setup header
+            let offset = match (*self.transfer).transfer_type {
+                ::libusb::LIBUSB_TRANSFER_TYPE_CONTROL => 8,
+                _ => 0
+            };
+            slice::from_raw_parts_mut((*self.transfer).buffer.offset(offset), (*self.transfer).actual_length as usize)
+        }
     }
 }
 
