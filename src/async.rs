@@ -135,15 +135,33 @@ impl<'d> Transfer<'d> {
     }
 
     /// Access the slice of the buffer containing actual data received on an IN transfer.
-    pub fn actual(&mut self) -> &'d mut [u8] {
+    pub fn actual(&mut self) -> &mut [u8] {
         unsafe {
-            // if this is a control request, the first 8 bytes of the buffer are
-            // the setup header
+            // If this is a control request, the first 8 bytes of the buffer will
+            // be the setup header.
+            // Additionally if the endpoint is OUT, the data blob must be skipped.
+            // The length of the data blob is given in buffer[6...7].
+            // (*self.transfer).actual_length seems to report the same length as set in 
+            // wLength of a control packet for OUT-Packets.
+            let mut data_out_length = -1;
             let offset = match (*self.transfer).transfer_type {
-                ::libusb::LIBUSB_TRANSFER_TYPE_CONTROL => 8,
+                ::libusb::LIBUSB_TRANSFER_TYPE_CONTROL => {
+                    if (*self.transfer).endpoint & ::libusb::LIBUSB_ENDPOINT_DIR_MASK != ::libusb::LIBUSB_ENDPOINT_IN {
+                        data_out_length = ((self.buffer[7] as isize) << 8) + self.buffer[6] as isize;
+                        8 + data_out_length
+                    } else {
+                        8
+                    }
+                },
                 _ => 0
             };
-            slice::from_raw_parts_mut((*self.transfer).buffer.offset(offset), (*self.transfer).actual_length as usize)
+            if data_out_length < 0 {
+                slice::from_raw_parts_mut((*self.transfer).buffer.offset(offset), (*self.transfer).actual_length as usize)
+            } else {
+                // TODO: is (*self.transfer).actual_length really always equal to wLength?
+                assert!((*self.transfer).actual_length as isize == data_out_length);
+                slice::from_raw_parts_mut((*self.transfer).buffer.offset(offset), 0)
+            }
         }
     }
 }
