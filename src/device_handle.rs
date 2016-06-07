@@ -110,6 +110,12 @@ impl<'a> DeviceHandle<'a> {
         Ok(())
     }
 
+    /// Clear the halt/stall condition for an endpoint.
+    pub fn clear_halt(&self, endpoint: u8) -> ::Result<()> {
+        try_unsafe!(::libusb::libusb_clear_halt(self.handle, endpoint as c_uchar));
+        Ok(())
+    }
+
     /// Reads from an interrupt endpoint.
     ///
     /// This function attempts to read from the interrupt endpoint with the address given by the
