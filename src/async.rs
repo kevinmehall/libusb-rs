@@ -72,6 +72,18 @@ impl<'d> Transfer<'d> {
         Transfer::new(handle, endpoint, ::libusb::LIBUSB_TRANSFER_TYPE_INTERRUPT, buffer, timeout)
     }
 
+    pub fn endpoint(&self) -> u8 {
+        unsafe {
+            (*self.transfer).endpoint as u8
+        }
+    }
+
+    pub fn timeout(&self) -> Duration {
+        unsafe {
+            Duration::from_millis((*self.transfer).timeout as u64)
+        }
+    }
+
     /// Gets the status of a completed transfer.
     pub fn status(&self) -> TransferStatus {
         match unsafe { (*self.transfer).status } {
