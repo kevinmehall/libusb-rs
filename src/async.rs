@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use libc::{ c_uint, c_int, c_uchar, c_void };
+use libc::{ c_uint, c_int, c_uchar, c_void, timeval };
 use std::time::Duration;
 use std::slice;
 use std::sync::Mutex;
@@ -243,29 +243,68 @@ impl<'d> AsyncGroup<'d> {
         }
 
         unsafe {
-            let transfer;
             loop {
-                {
-                    let mut completed = self.callback_data.completed.lock().unwrap();
-                    if let Some(t) = completed.pop_front() {
-                        transfer = t;
-                        break;
-                    }
-                    *self.callback_data.flag.get() = 0;
+                match self.completed_transfer() {
+                    Some(res) => return res,
+                    None => try_unsafe!(::libusb::libusb_handle_events_completed(
+                        self.context.as_raw(),
+                        self.callback_data.flag.get()
+                    ))
                 }
-                try_unsafe!(::libusb::libusb_handle_events_completed(
-                    self.context.as_raw(),
-                    self.callback_data.flag.get()
-                ));
             }
-
-            if !self.pending.remove(&transfer) {
-                panic!("Got a completion for a transfer that wasn't pending");
-            }
-            
-            let vec = Vec::from_raw_parts((*transfer).buffer, (*transfer).length as usize, (*transfer).length as usize);
-            Ok(Transfer{ transfer: transfer, _handle: PhantomData, buffer: vec })
         }
+    }
+
+    /// Wait up to timeout for any pending transfer to complete, and return it.
+    /// If none has finished when the timeout is reached, None is returned
+    pub fn try_wait_any(&mut self, timeout: Duration) -> Option<::Result<Transfer<'d>>> {
+        if self.pending.len() == 0 {
+            // Otherwise this function would block forever waiting for a transfer to complete
+            return Some(Err(::Error::NotFound))
+        }
+        let tv = timeval {
+            tv_sec: timeout.as_secs() as i64,
+            tv_usec: (timeout.subsec_nanos() / 1000) as i64
+        };
+
+        unsafe {
+            match self.completed_transfer() {
+                Some(res) => Some(res),
+                None => {
+                    match ::libusb::libusb_handle_events_timeout_completed(
+                        self.context.as_raw(),
+                        &tv,
+                        self.callback_data.flag.get()
+                    ) {
+                        0 => self.completed_transfer(),
+                        err => Some(Err(::error::from_libusb(err))),
+                    }
+                }
+            }
+        }
+    }
+
+    fn completed_transfer(&mut self) -> Option<::Result<Transfer<'d>>> {
+        let mut completed = self.callback_data.completed.lock().unwrap();
+        let res;
+        match completed.pop_front() {
+            Some(transfer) => {
+                if !self.pending.remove(&transfer) {
+                    panic!("Got a completion for a transfer that wasn't pending");
+                }
+                let vec = unsafe {
+                    Vec::from_raw_parts(
+                        (*transfer).buffer,
+                        (*transfer).length as usize,
+                        (*transfer).length as usize
+                    )
+                };
+                res = Some(Ok(Transfer{ transfer: transfer, _handle: PhantomData, buffer: vec }))
+            },
+            None => res = None
+        }
+        unsafe { *self.callback_data.flag.get() = 0; }
+        return res;
     }
 
     /// Cancels all pending transfers.
