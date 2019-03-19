@@ -129,7 +129,7 @@ pub struct AsyncGroup<'d> {
 
     /// The data touched by the callback, boxed to keep a consistent address if the AsyncGroup
     /// is moved while transfers are active.
-    callback_data: Box<CallbackData>,
+    callback_data: *const CallbackData,
 
     /// The set of pending transfers. We need to keep track of them so they can be cancelled on
     /// drop.
@@ -151,10 +151,10 @@ impl<'d> AsyncGroup<'d> {
     pub fn new(context: &'d ::Context) -> AsyncGroup<'d> {
         AsyncGroup {
             context: context,
-            callback_data: Box::new(CallbackData {
+            callback_data: Box::into_raw(Box::new(CallbackData {
                 completed: Mutex::new(VecDeque::new()),
                 flag: UnsafeCell::new(0),
-            }),
+            })),
             pending: HashSet::new(),
         }
     }
@@ -165,7 +165,7 @@ impl<'d> AsyncGroup<'d> {
     /// returned from `wait_any` when it completes or fails.
     pub fn submit(&mut self, t: Transfer<'d>) -> ::Result<()> {
         unsafe {
-            (*t.transfer).user_data = &mut *self.callback_data as *mut _ as *mut c_void;
+            (*t.transfer).user_data = self.callback_data as *mut c_void;
             (*t.transfer).callback = async_group_callback;
             try_unsafe!(::libusb::libusb_submit_transfer(t.transfer));
             self.pending.insert(t.transfer);
@@ -185,16 +185,17 @@ impl<'d> AsyncGroup<'d> {
             let transfer;
             loop {
                 {
-                    let mut completed = self.callback_data.completed.lock().unwrap();
+                    let mut completed = (*self.callback_data).completed.lock().unwrap();
                     if let Some(t) = completed.pop_front() {
                         transfer = t;
                         break;
                     }
-                    *self.callback_data.flag.get() = 0;
+                    *(*self.callback_data).flag.get() = 0;
+
                 }
                 try_unsafe!(::libusb::libusb_handle_events_completed(
                     self.context.as_raw(),
-                    self.callback_data.flag.get()
+                    (*self.callback_data).flag.get()
                 ));
             }
 
@@ -226,5 +227,8 @@ impl<'d> AsyncGroup<'d> {
 impl<'d> Drop for AsyncGroup<'d> {
     fn drop(&mut self) {
         self.cancel_all().ok();
+        unsafe {
+            drop(Box::from_raw(self.callback_data as *mut CallbackData));
+        }
     }
 }
